@@ -1,1 +1,1 @@
-{"name":"nett-pwa","version":"0.1.0","private":true,"type":"module","scripts":{"test":"node --test tests/*.test.js","check":"node --check app.js && node --check engine.js && node --check worker/worker.js && node --check sw.js"}}
+{"name":"nett-pwa","version":"0.2.0","private":true,"type":"module","scripts":{"test":"node --test tests/*.test.js","check":"node --check app.js && node --check engine.js && node --check worker/worker.js && node --check sw.js"}}

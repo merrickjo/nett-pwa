@@ -79,3 +79,48 @@ test('amount parsing', () => {
   assert.equal(E.parseAmount('35000'), 35000);
   assert.ok(Number.isNaN(E.parseAmount('abc')));
 });
+
+// ── v0.2: liquid-fund plan ──
+test('planned payday sweep = base − family − drilling − leakage', () => {
+  assert.equal(E.plannedSweep('2026-09-25', S), 0);                       // before the plan starts
+  assert.equal(E.plannedSweep('2026-10-25', S), 15_050_000 - 2_000_000 - 870_000);
+  assert.equal(E.plannedSweep('2027-01-25', S), 19_340_000 - 2_870_000);
+  assert.equal(E.plannedSweep('2027-03-25', { ...S, drilling: false, leakage: 500_000 }), 21_110_000 - 2_000_000 - 500_000);
+});
+
+test('ETA: M1 62jt lands on the 25 Feb 2027 payday with the default plan', () => {
+  const g = E.eta(state([]), '2026-10-01');
+  assert.equal(g.key, 'M1');
+  assert.equal(g.date, '2027-02-25');
+  const lean = E.eta({ settings: { ...S, drilling: false, familyAssumed: 0 }, events: {} }, '2026-10-01');
+  assert.equal(lean.date, '2027-01-25');
+});
+
+test('ETA: a logged payday sweep moves the start to the next cycle', () => {
+  const s = state([ev({ date: '2026-10-25', kind: 'fund', amount: 30_000_000, payday: '2026-10-25', plan: 12_180_000 })]);
+  const g = E.eta(s, '2026-10-26');
+  assert.equal(g.balance, 30_000_000);
+  assert.equal(g.date, '2027-01-25');                                      // 30 + 12.18 (Nov) + 12.18 (Dec) = 54.4 < 62; + 16.47 (Jan) ≥ 62
+});
+
+test('payday log shows plan vs actual per cycle', () => {
+  const s = state([ev({ date: '2026-10-25', kind: 'fund', amount: 10_000_000, payday: '2026-10-25', plan: 12_180_000 })]);
+  const log = E.paydayLog(s, '2026-11-30');
+  assert.deepEqual(log.map(r => [r.cycle, r.plan, r.actual, r.logged]), [
+    ['2026-10-25', 12_180_000, 10_000_000, true],
+    ['2026-11-25', 12_180_000, 0, false],
+  ]);
+});
+
+test('levers: drilling on pushes the date out; family needs a week of data', () => {
+  const L = Object.fromEntries(E.levers(state([]), '2026-10-01').map(l => [l.key, l]));
+  assert.ok(L.drilling.days > 0);
+  assert.equal(L.family.days, null);
+  assert.equal(L.leakage.days, 0);
+});
+
+test('sweep plan text round-trips', () => {
+  const txt = E.formatSweepBase(S.sweepBase);
+  assert.deepEqual(E.parseSweepBase(txt), S.sweepBase);
+  assert.equal(E.parseSweepBase('nonsense'), null);
+});

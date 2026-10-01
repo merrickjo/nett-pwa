@@ -34,6 +34,12 @@
     <ol class="strip" id="week-strip" aria-label="This week"></ol>
     <p class="meta ck-num" id="week-meta"></p>
 
+    <div class="goal" id="goal">
+      <p class="row"><span class="ck-label" id="goal-label">Liquid fund</span><span class="ck-num" id="goal-eta"></span></p>
+      <div class="bar thin"><div class="bar-fill" id="goal-bar"></div></div>
+      <p class="meta ck-num" id="goal-meta"></p>
+    </div>
+
     <div class="actions owner-only">
       <button class="btn primary" data-sheet="checkin">Check balance</button>
       <button class="btn" data-sheet="spend">Log spend</button>
@@ -80,8 +86,26 @@
       <button class="btn owner-only" data-sheet="fund">Log fund deposit</button>
     </div>
 
+    <p class="ck-label section-gap">Payday sweep · 25th</p>
+    <div class="card">
+      <p class="row"><span>Reaches <span id="eta-key">M1</span></span><span class="ck-num big" id="eta-date"></span></p>
+      <p class="meta ck-num" id="eta-meta"></p>
+      <button class="btn primary owner-only" data-sheet="payday">Log payday sweep</button>
+    </div>
+    <table class="weeks ck-num" id="paydays"></table>
+
+    <p class="ck-label section-gap">What moves the date</p>
+    <ul class="levers" id="levers"></ul>
+
     <p class="ck-label section-gap">Weeks</p>
     <table class="weeks ck-num" id="weeks"></table>
+  </section>
+
+  <!-- WORTH (owner only: never synced to the viewer key) -->
+  <section id="view-worth" class="view owner-only" hidden>
+    <p class="ck-label" id="worth-label">Worth · only you</p>
+    <h1 class="ck-title">Assets</h1>
+    <div id="worth-body"></div>
   </section>
 
   <!-- PLAN -->
@@ -107,6 +131,16 @@
         </div>
         <label>Family weekly cap <input name="familyWeekly" inputmode="decimal"></label>
         <label>Liquid fund before Nett <input name="fundBase" inputmode="decimal"></label>
+        <p class="ck-label">Liquid-fund plan</p>
+        <label>Payday sweep before family &amp; drilling (from date, amount — one per line)
+          <textarea name="sweepBase" rows="3" spellcheck="false"></textarea></label>
+        <label>Family spending the plan assumes, per month <input name="familyAssumed" inputmode="decimal"></label>
+        <div class="grid2">
+          <label class="check"><input type="checkbox" name="drilling"> Drilling on</label>
+          <label>Drilling per month <input name="drillingMonthly" inputmode="decimal"></label>
+        </div>
+        <label>Card leakage, last monthly review <input name="leakage" inputmode="decimal"></label>
+        <p class="meta ck-num" id="plan-sweep-preview"></p>
         <button class="btn primary" type="submit">Save plan</button>
       </fieldset>
     </form>
@@ -127,7 +161,9 @@
     <div class="actions">
       <button class="btn" id="export">Export JSON</button>
       <label class="btn">Import JSON<input type="file" id="import" accept="application/json" hidden></label>
+      <label class="btn owner-only">Import Worth<input type="file" id="import-worth" accept="application/json" hidden></label>
     </div>
+    <p class="meta" id="worth-detail"></p>
     <p class="meta" id="version"></p>
   </section>
 </main>
@@ -136,6 +172,7 @@
 <nav class="gn" aria-label="Primary">
   <button class="gn-item" data-gn="today" aria-current="page">Today</button>
   <button class="gn-item" data-gn="month">Month</button>
+  <button class="gn-item owner-only" data-gn="worth">Worth</button>
   <button class="gn-item" data-gn="plan">Plan</button>
 </nav>
 

@@ -16,6 +16,19 @@ export const DEFAULT_SETTINGS = {
   familyMode: 'observe',           // 'observe' (track, no cap) | 'budget'
   familyWeekly: 0,
   fundBase: 0,                     // liquid-fund balance before Nett started
+  // Liquid-fund plan (decisions-log 2026-10-01). Base payday sweep BEFORE family and
+  // drilling: 84.6 salary − 62.3 baseline − 1.05 non-Me transfers − 3 Me − 1 subs = 17.25jt,
+  // minus the DBS conversion (2.2jt) through the Dec payday; +2.09jt (Shopee installment
+  // ends) from Jan; +1.77jt (BCA installment ends) from Mar.
+  sweepBase: [
+    { from: '2026-10-25', amount: 15_050_000 },
+    { from: '2027-01-25', amount: 19_340_000 },
+    { from: '2027-03-25', amount: 21_110_000 },
+  ],
+  familyAssumed: 2_000_000,        // family variable per month the plan assumes
+  drilling: true,                  // badminton drilling (Kwee Mas Rudy, 200k/week)
+  drillingMonthly: 870_000,
+  leakage: 0,                      // discretionary on cards, from the last monthly review (target 0)
   updatedAt: '1970-01-01T00:00:00.000Z',
 };
 
@@ -177,6 +190,7 @@ export function rp(n, { short = false } = {}) {
   const neg = v < 0 ? '−' : '';
   const a = Math.abs(v);
   if (short) {
+    if (a >= 1e9) return `${neg}${(a / 1e9).toFixed(2).replace('.', ',')}M`;
     if (a >= 1e6) return `${neg}${(a / 1e6).toFixed(a >= 1e7 ? 0 : 1).replace('.', ',')}jt`;
     if (a >= 1e3) return `${neg}${Math.round(a / 1e3)}k`;
     return `${neg}${a}`;
@@ -194,4 +208,112 @@ export function merge(local, remote) {
   let settings = local.settings;
   if (remote.settings && (remote.settings.updatedAt || '') > (settings.updatedAt || '')) settings = { ...DEFAULT_SETTINGS, ...remote.settings };
   return { ...local, events, settings };
+}
+
+// ── Liquid-fund plan: payday sweeps, ETA, levers (v0.2) ──────────────────
+export const DAYS_PER_MONTH = 30.44;
+const daysBetween = (a, b) => (toUTC(b) - toUTC(a)) / DAY_MS;
+export function nextCycleStart(start, payday = 25) { return addDays(payCycle(start, payday).end, 1); }
+
+export function baseSweep(cycleStart, settings) {
+  let amt = 0;
+  for (const step of settings.sweepBase || []) if (step.from <= cycleStart) amt = step.amount;
+  return amt;
+}
+// What the payday transfer to the liquid fund should be for the cycle starting on cycleStart.
+export function plannedSweep(cycleStart, settings, delta = 0) {
+  const base = baseSweep(cycleStart, settings);
+  if (!base) return 0;
+  const drill = settings.drilling ? (settings.drillingMonthly || 0) : 0;
+  return Math.max(0, base - (settings.familyAssumed || 0) - drill - (settings.leakage || 0) + delta);
+}
+
+function paydayEvents(state) {
+  return liveEvents(state.events).filter(e => e.kind === 'fund' && e.payday);
+}
+
+// Plan vs actual for every payday from the first plan step to the current cycle.
+export function paydayLog(state, date = jktDate()) {
+  const s = state.settings, first = (s.sweepBase || [])[0]?.from;
+  if (!first) return [];
+  const cur = payCycle(date, s.payday).start;
+  const evs = paydayEvents(state);
+  const rows = [];
+  for (let c = payCycle(first, s.payday).start; c <= cur; c = nextCycleStart(c, s.payday)) {
+    const mine = evs.filter(e => e.payday === c);
+    rows.push({
+      cycle: c,
+      plan: mine.find(e => Number.isFinite(e.plan))?.plan ?? plannedSweep(c, s),
+      actual: sum(mine, e => e.amount),
+      logged: mine.length > 0,
+    });
+  }
+  return rows;
+}
+
+// Project the fund forward on planned payday sweeps (± a monthly delta) until it reaches
+// the next milestone. `date` = the payday it lands; `days` = continuous days from today
+// (interpolated inside the crossing month) — used to size the levers in days.
+export function project(state, date = jktDate(), delta = 0) {
+  const s = state.settings, f = fund(state);
+  const target = f.next.amount;
+  if (f.balance >= target) return { reached: true, key: f.next.key, target, balance: f.balance, date: null, days: 0 };
+  const logged = new Set(paydayEvents(state).map(e => e.payday));
+  let c = payCycle(date, s.payday).start;
+  if (logged.has(c)) c = nextCycleStart(c, s.payday);   // this cycle's transfer is already in the balance
+  let bal = f.balance, prev = date, nextPay = null;
+  for (let i = 0; i < 240; i++) {
+    const amt = plannedSweep(c, s, delta);
+    if (amt > 0 && !nextPay) nextPay = { date: c, amount: amt };
+    if (amt > 0 && bal + amt >= target) {
+      const frac = (target - bal) / amt;                  // share of this month's transfer needed
+      const span = Math.max(0, daysBetween(prev, c));
+      const days = Math.max(0, daysBetween(date, prev) + Math.max(span, DAYS_PER_MONTH) * frac);
+      return { reached: false, key: f.next.key, target, balance: f.balance, date: c, days, next: nextPay };
+    }
+    bal += amt; prev = c;
+    c = nextCycleStart(c, s.payday);
+  }
+  return { reached: false, key: f.next.key, target, balance: f.balance, date: null, days: Infinity, next: nextPay };
+}
+export function eta(state, date = jktDate()) { return project(state, date, 0); }
+
+// What moves the date. days > 0 = later than it would be without this lever.
+export function levers(state, date = jktDate()) {
+  const s = state.settings, c = cycle(state, date);
+  const base = project(state, date, 0).days;
+  const shift = delta => {
+    const d = project(state, date, delta).days;
+    return Number.isFinite(d) && Number.isFinite(base) ? Math.round(d - base) : null;
+  };
+  const elapsed = daysBetween(c.start, date) + 1;
+  const started = (s.sweepBase || [])[0]?.from && c.start >= s.sweepBase[0].from;   // plan running this cycle
+  const famRun = started && elapsed >= 7 ? c.familySpent / elapsed * DAYS_PER_MONTH : null;
+  const famDelta = famRun == null ? null : Math.round(famRun - (s.familyAssumed || 0));
+  return [
+    { key: 'leakage', label: 'Card leakage', monthly: s.leakage || 0, days: s.leakage ? -shift(s.leakage) : 0,
+      note: 'Discretionary on cards, last monthly review. Target 0.' },
+    { key: 'family', label: 'Family vs plan', monthly: famDelta, days: famDelta == null ? null : shift(-famDelta),
+      note: famRun == null ? `Plan ${rp(s.familyAssumed, { short: true })}/mo · needs a week of data`
+        : `Running ${rp(famRun, { short: true })}/mo vs plan ${rp(s.familyAssumed, { short: true })}` },
+    { key: 'drilling', label: 'Drilling', monthly: s.drilling ? s.drillingMonthly : 0, on: !!s.drilling,
+      days: s.drilling ? -shift(s.drillingMonthly) : shift(-(s.drillingMonthly || 0)),
+      note: s.drilling ? 'On · pausing it would pull the date in' : 'Paused · resuming it would push the date out' },
+  ];
+}
+
+// Monthly sweep plan ↔ text lines "YYYY-MM-DD 15,05jt" (Plan screen).
+export function formatSweepBase(steps) {
+  return (steps || []).map(st => `${st.from} ${String(+(st.amount / 1e6).toFixed(2)).replace('.', ',')}jt`).join('\n');
+}
+export function parseSweepBase(text) {
+  const out = [];
+  for (const line of String(text || '').split(/\n+/).map(l => l.trim()).filter(Boolean)) {
+    const m = line.match(/^(\d{4}-\d{2}-\d{2})\s+(.+)$/);
+    if (!m) return null;
+    const amount = parseAmount(m[2]);
+    if (!Number.isFinite(amount) || amount < 0) return null;
+    out.push({ from: m[1], amount });
+  }
+  return out.sort((a, b) => a.from.localeCompare(b.from));
 }

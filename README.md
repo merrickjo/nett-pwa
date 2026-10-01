@@ -19,6 +19,14 @@ an optional Cloudflare Worker + D1 syncs so Tesa can view the same numbers.
 - **Paybacks:** log a group meal with the expected payback; only your share counts.
 - **Month view:** pay cycle 25th → 24th, Me allowance donut, Family total, liquid fund
   toward M1 62M · M2 187M · M3 374M.
+- **Liquid-fund plan (0.2):** each 25th, log the payday sweep (Month → Log payday sweep).
+  Plan = base sweep (Plan screen, one step per line) − family assumed − drilling − card leakage.
+  Today shows the goal line with the ETA; Month shows plan vs actual per payday and
+  *What moves the date* (leakage, family vs plan, drilling) in days.
+- **Worth (0.2, owner only):** a monthly asset snapshot written by the Claude review as
+  `private/worth-YYYY-MM.json` (gitignored — never deployed). Import it on Merrick's phone
+  via Plan → Import Worth. It is stored apart from the ledger and syncs only through
+  `GET/POST /worth`, which the Worker refuses for the view key. Tesa's app (Viewer) hides the tab.
 
 ## Run locally
 
@@ -46,6 +54,8 @@ wrangler secret put APP_KEY                # Merrick: read + write
 wrangler secret put VIEW_KEY               # Tesa: read only
 wrangler deploy
 ```
+0.2 adds `/worth` to the Worker: run `wrangler deploy` again (no schema change — it uses the
+existing `kv` table).
 In the app → Plan → Sync: paste the Worker URL and key, choose Owner (Merrick) or
 Viewer (Tesa). Merrick's phone pushes on every entry; Tesa's pulls whenever she opens it.
 Never commit either key.

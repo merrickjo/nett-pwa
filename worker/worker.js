@@ -1,6 +1,8 @@
 // Nett sync — Cloudflare Worker + D1.
 // GET  /state   (APP_KEY or VIEW_KEY)  → { events, settings, now }
 // POST /sync    (APP_KEY only)         ← { events: [...], settings|null } → same as /state
+// GET  /worth   (APP_KEY only)         → { snapshots: [...], updatedAt }   (Merrick's Worth tab)
+// POST /worth   (APP_KEY only)         ← same shape; newer updatedAt wins. VIEW_KEY gets 403.
 // Last write wins per event id on updatedAt. Deletes are tombstones (deleted: true).
 
 const KINDS = ['spend', 'unlogged', 'unlogged_in', 'checkin', 'topup', 'payback', 'sweep', 'fund'];
@@ -68,6 +70,24 @@ export default {
         if (!body || typeof body !== 'object') return json({ error: 'body must be JSON' }, 400, env);
         await applySync(env, body);
         return json(await readState(env), 200, env);
+      }
+      if (pathname === '/worth') {
+        if (who !== 'owner') return json({ error: 'owner only' }, 403, env);
+        if (req.method === 'GET') {
+          const w = await env.DB.prepare("SELECT data FROM kv WHERE k = 'worth'").first();
+          return json(w ? JSON.parse(w.data) : { snapshots: [], updatedAt: '' }, 200, env);
+        }
+        if (req.method === 'POST') {
+          const body = await req.json().catch(() => null);
+          if (!body || !Array.isArray(body.snapshots) || typeof body.updatedAt !== 'string') return json({ error: 'need { snapshots: [], updatedAt }' }, 400, env);
+          if (JSON.stringify(body).length > 200_000) return json({ error: 'too large' }, 413, env);
+          await env.DB.prepare(
+            `INSERT INTO kv (k, data, updated_at) VALUES ('worth', ?1, ?2)
+             ON CONFLICT(k) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at
+             WHERE excluded.updated_at >= kv.updated_at`
+          ).bind(JSON.stringify(body), body.updatedAt).run();
+          return json({ ok: true }, 200, env);
+        }
       }
       return json({ error: 'not found' }, 404, env);
     } catch (err) {

@@ -73,3 +73,31 @@ body.viewer .owner-only{display:none!important}
 body.viewer .owner-only-fs{opacity:.6;pointer-events:none}
 .seg+label{margin-top:var(--ck-s-3)}
 .sheet label{display:block;margin-top:var(--ck-s-3);font-size:var(--ck-fs-meta)}
+
+/* v0.2 — goal line, payday log, levers, Worth */
+.goal{margin-top:var(--ck-s-4)!important;border-top:var(--ck-rule) solid var(--ink);padding-top:var(--ck-s-3)}
+.bar.thin{height:8px;margin:var(--ck-s-1) 0}
+.levers{list-style:none;padding:0;margin:0}
+.levers li{padding:var(--ck-s-2) 0;border-bottom:var(--ck-rule) solid var(--fill)}
+.levers .row{margin:0}
+.levers .d{font:600 14px var(--ck-data)}
+.form textarea{display:block;width:100%;margin-top:var(--ck-s-1);font:400 var(--ck-fs-body) var(--ck-data);padding:10px;border:var(--ck-rule) solid var(--ink);border-radius:var(--ck-r-1);background:var(--paper);color:var(--ink);resize:vertical}
+.form label.check{display:flex;align-items:center;gap:var(--ck-s-2);margin-top:calc(var(--ck-s-3) + 20px)}
+.stack{display:flex;height:22px;border:var(--ck-rule) solid var(--ink);border-radius:var(--ck-r-1);overflow:hidden;margin:var(--ck-s-1) 0 var(--ck-s-3)}
+.stack span{display:block;height:100%;border-right:var(--ck-rule) solid var(--paper)}
+.stack span:last-child{border-right:0}
+.f0{background:var(--ink)}.f1{background:#555}.f2{background:#999}.f3{background:#C8C8C8}
+.f4{background:repeating-linear-gradient(45deg,var(--ink) 0 1px,var(--paper) 1px 5px)}
+.f5{background:var(--paper)}
+.legend{list-style:none;padding:0;margin:0}
+.legend li{display:flex;align-items:center;gap:var(--ck-s-2);padding:var(--ck-s-1) 0;border-bottom:var(--ck-rule) solid var(--fill)}
+.legend .sw{width:14px;height:14px;border:var(--ck-rule) solid var(--ink);flex:none}
+.legend .what{flex:1;min-width:0}
+.legend .pct{font:500 12px var(--ck-data);color:var(--ink-soft);width:40px;text-align:right}
+.legend .amt{font-family:var(--ck-data);font-variant-numeric:tabular-nums;min-width:72px;text-align:right}
+.month-tag{font:500 11px var(--ck-data);letter-spacing:.1em;text-transform:uppercase}
+.timeline{list-style:none;padding:0;margin:0}
+.timeline li{display:flex;gap:var(--ck-s-3);padding:var(--ck-s-2) 0;border-bottom:var(--ck-rule) solid var(--fill)}
+.timeline .when{font:500 12px var(--ck-data);width:72px;flex:none}
+.timeline .what{flex:1}
+.timeline .amt{font-family:var(--ck-data)}

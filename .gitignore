@@ -6,3 +6,7 @@
 node_modules/
 worker/.wrangler/
 worker/.app-key
+
+# Worth snapshots are private: imported on Merrick's phone, never deployed to Pages
+private/
+worth-*.json

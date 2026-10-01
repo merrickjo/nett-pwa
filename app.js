@@ -2,9 +2,10 @@
 // Cloudflare Worker syncs it so Tesa can view the same numbers.
 import * as E from './engine.js';
 
-const VERSION = '0.1.0';
+const VERSION = '0.2.0';
 const KEY = 'nett-state-v1';
 const SYNC_KEY = 'nett-sync-v1';
+const WORTH_KEY = 'nett-worth-v1';   // owner-only; synced via /worth (APP_KEY), never via /state
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 
@@ -25,6 +26,21 @@ function syncCfg() {
   catch { return { url: '', key: '', role: 'owner' }; }
 }
 const isViewer = () => syncCfg().role === 'viewer';
+
+// Worth snapshots: written monthly by the Claude review, imported by Merrick.
+// Kept apart from `state` so they never reach Tesa's view key.
+function loadWorth() {
+  try { return JSON.parse(localStorage.getItem(WORTH_KEY) || 'null') || { snapshots: [], updatedAt: '' }; }
+  catch { return { snapshots: [], updatedAt: '' }; }
+}
+let worth = loadWorth();
+function saveWorth() { try { localStorage.setItem(WORTH_KEY, JSON.stringify(worth)); } catch { /* storage blocked */ } }
+function mergeWorth(incoming) {
+  const byMonth = Object.fromEntries((worth.snapshots || []).map(x => [x.month, x]));
+  for (const x of incoming.snapshots || []) if (x && /^\d{4}-\d{2}$/.test(x.month)) byMonth[x.month] = x;
+  worth = { snapshots: Object.values(byMonth).sort((a, b) => a.month.localeCompare(b.month)),
+    updatedAt: [worth.updatedAt, incoming.updatedAt].filter(Boolean).sort().pop() || new Date().toISOString() };
+}
 
 function addEvent(fields) {
   const now = new Date().toISOString();
@@ -70,6 +86,13 @@ async function push() {
       remote = await call('GET', '/state');
     }
     state = { ...E.merge(state, remote), dirty: state.dirty, settingsDirty: state.settingsDirty };
+    if (cfg.role === 'owner') {
+      try {
+        const remoteWorth = await call('GET', '/worth');
+        if ((remoteWorth.updatedAt || '') > (worth.updatedAt || '')) { mergeWorth(remoteWorth); saveWorth(); }
+        else if ((worth.updatedAt || '') > (remoteWorth.updatedAt || '')) await call('POST', '/worth', worth);
+      } catch { /* older Worker without /worth: Worth stays on this device */ }
+    }
     save(); render();
     setStatus('Synced ' + new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Jakarta' }));
     $('#sync-detail').textContent = '';
@@ -86,7 +109,7 @@ const fmtDay = d => new Date(d + 'T00:00:00Z').toLocaleDateString('en-GB', { day
 
 function render() {
   document.body.classList.toggle('viewer', isViewer());
-  renderToday(); renderMonth(); renderPlan();
+  renderToday(); renderMonth(); renderPlan(); renderWorth();
 }
 
 function renderToday() {
@@ -105,6 +128,13 @@ function renderToday() {
   }).join('');
   const w = t.week;
   $('#week-meta').textContent = `Week ${E.rp(w.spent)} of ${E.rp(w.envelope)}` + (w.carry ? ` (incl. ${E.rp(w.carry)} carried)` : '') + ` · left ${E.rp(w.left)}`;
+
+  const g = E.eta(state, t.date), gf = E.fund(state);
+  $('#goal-label').textContent = `Liquid fund · ${g.key}`;
+  $('#goal-bar').style.width = (gf.progress * 100).toFixed(1) + '%';
+  $('#goal-eta').textContent = g.reached ? 'Reached' : g.date ? `ETA ${fmtDay(g.date)} ${g.date.slice(0, 4)}` : 'ETA —';
+  $('#goal-meta').textContent = `${E.rp(gf.balance, { short: true })} / ${E.rp(g.target, { short: true })}` +
+    (g.reached || !g.next ? '' : ` · next payday ${fmtDay(g.next.date)}: ${E.rp(g.next.amount, { short: true })}`);
 
   const s = state.settings;
   $('#family-label').textContent = `Family · ${s.familyMode === 'budget' ? 'budget' : 'observe'}`;
@@ -161,6 +191,21 @@ function renderMonth() {
   $('#fund-meta').textContent = f.balance >= E.MILESTONES[2].amount
     ? 'All three milestones reached'
     : `${f.next.key} · ${f.next.label} of baseline = ${E.rp(f.next.amount)} · ${E.rp(f.next.amount - f.balance)} to go`;
+  const g = E.eta(state);
+  $('#eta-key').textContent = g.key;
+  $('#eta-date').textContent = g.reached ? 'Reached' : g.date ? `${fmtDay(g.date)} ${g.date.slice(0, 4)}` : '—';
+  $('#eta-meta').textContent = g.reached ? `${E.rp(g.target)} reached`
+    : `${E.rp(g.target - g.balance)} to go` + (g.next ? ` · plan ${E.rp(g.next.amount)} on ${fmtDay(g.next.date)}` : '');
+  const log = E.paydayLog(state);
+  $('#paydays').innerHTML = log.length ? '<tr><th>Payday</th><th>Plan</th><th>Moved</th><th>Gap</th></tr>' +
+    log.map(r => `<tr><td>${fmtDay(r.cycle)}</td><td>${E.rp(r.plan, { short: true })}</td>` +
+      `<td>${r.logged ? E.rp(r.actual, { short: true }) : '—'}</td><td>${r.logged ? E.rp(r.actual - r.plan, { short: true }) : ''}</td></tr>`).join('')
+    : '';
+  const dayTxt = d => d == null ? '—' : d === 0 ? '0 days' : `${d > 0 ? '+' : '−'}${Math.abs(d)} days`;
+  $('#levers').innerHTML = E.levers(state).map(l => `<li>
+      <p class="row"><span>${esc(l.label)}</span><span class="d">${dayTxt(l.days)}</span></p>
+      <p class="meta ck-num">${l.monthly == null ? '' : E.rp(l.monthly, { short: true }) + '/mo · '}${esc(l.note)}</p></li>`).join('');
+
   $('#weeks').innerHTML = '<tr><th>Week</th><th>Budget</th><th>Spent</th><th>Left</th></tr>' +
     c.weeks.map(w => `<tr><td>${fmtDay(w.monday)}</td><td>${E.rp(w.envelope, { short: true })}</td><td>${E.rp(w.spent, { short: true })}</td><td>${E.rp(w.left, { short: true })}</td></tr>`).join('');
 }
@@ -174,6 +219,13 @@ function renderPlan() {
   $$('input[name=familyMode]', f).forEach(i => (i.checked = i.value === s.familyMode));
   f.familyWeekly.value = (s.familyWeekly || 0).toLocaleString('id-ID');
   f.fundBase.value = (s.fundBase || 0).toLocaleString('id-ID');
+  f.sweepBase.value = E.formatSweepBase(s.sweepBase);
+  f.familyAssumed.value = (s.familyAssumed || 0).toLocaleString('id-ID');
+  f.drilling.checked = !!s.drilling;
+  f.drillingMonthly.value = (s.drillingMonthly || 0).toLocaleString('id-ID');
+  f.leakage.value = (s.leakage || 0).toLocaleString('id-ID');
+  const nextPay = E.nextCycleStart(E.payCycle(E.jktDate(), s.payday).start, s.payday);
+  $('#plan-sweep-preview').textContent = `Next payday ${fmtDay(nextPay)}: move ${E.rp(E.plannedSweep(nextPay, s))} to the liquid fund`;
   $('#weekly-preview').textContent = `= ${E.rp(E.weeklyMe(s))} a week, topped up every Monday`;
   $('#wfo-days').innerHTML = [1, 2, 3, 4, 5].map(d =>
     `<label><input type="checkbox" value="${d}" ${s.wfoDays.includes(d) ? 'checked' : ''}>${DOW[d - 1]}</label>`).join('');
@@ -183,6 +235,65 @@ function renderPlan() {
     $$('input[name=role]', sf).forEach(i => (i.checked = i.value === sc.role));
   }
   $('#version').textContent = `Nett ${VERSION}`;
+}
+
+// ── Worth (owner only) ───────────────────────────────────────────────────
+const FILLS = ['f0', 'f1', 'f2', 'f3', 'f4', 'f5'];
+const monthName = m => new Date(m + '-01T00:00:00Z').toLocaleDateString('en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' });
+function renderWorth() {
+  const body = $('#worth-body');
+  if (isViewer()) { body.innerHTML = ''; return; }
+  const snaps = worth.snapshots || [];
+  if (!snaps.length) {
+    body.innerHTML = '<p class="meta">No snapshot yet. Plan → Import Worth, with the worth-YYYY-MM.json the monthly review writes.</p>';
+    return;
+  }
+  const latest = snaps[snaps.length - 1];
+  const total = x => x.buckets.reduce((t, b) => t + (b.value || 0), 0);
+  const order = latest.buckets.map(b => b.key);
+  const fill = key => FILLS[Math.max(0, order.indexOf(key)) % FILLS.length];
+  const stack = x => {
+    const t = total(x) || 1;
+    return `<div class="stack" role="img" aria-label="${esc(x.buckets.map(b => `${b.label} ${Math.round((b.value || 0) / t * 100)}%`).join(', '))}">` +
+      x.buckets.filter(b => b.value > 0).map(b => `<span class="${fill(b.key)}" style="width:${(b.value / t * 100).toFixed(2)}%"></span>`).join('') + '</div>';
+  };
+  const tot = total(latest);
+  const pct = v => tot ? Math.round(v / tot * 100) + '%' : '';
+  const fundNow = E.fund(state).balance;
+  const ef = latest.emergencyFund || { target: E.MILESTONES[0].amount, full: E.MILESTONES[2].amount };
+  const gold = latest.buckets.find(b => b.key === 'gold');
+  const us = latest.us;
+  let html = `
+    <p class="meta">${esc(monthName(latest.month))} · as of ${esc(fmtDay(latest.asOf || latest.month + '-01'))} ${esc((latest.asOf || '').slice(0, 4))} · ${esc(latest.scope || 'Merrick')}</p>
+    <p class="hero ck-num" style="font-size:30px">${E.rp(tot)}</p>
+    <p class="meta">${esc(latest.liabilitiesNote || 'Assets only — mortgage and car loan not entered yet.')}</p>
+    ${stack(latest)}
+    <ul class="legend">${latest.buckets.map(b => `<li><span class="sw ${fill(b.key)}"></span>
+      <span class="what">${esc(b.label)}${b.note ? `<br><span class="meta">${esc(b.note)}</span>` : ''}</span>
+      <span class="pct">${pct(b.value || 0)}</span><span class="amt">${E.rp(b.value || 0, { short: true })}</span></li>`).join('')}</ul>
+
+    <p class="ck-label section-gap">Liquid vs emergency fund</p>
+    <div class="card">
+      <p class="row"><span>Liquid fund (live)</span><span class="ck-num big">${E.rp(fundNow, { short: true })}</span></p>
+      <div class="bar"><div class="bar-fill" style="width:${Math.min(100, fundNow / ef.full * 100).toFixed(1)}%"></div></div>
+      <p class="meta ck-num">M1 ${E.rp(ef.target, { short: true })} · full 6× baseline ${E.rp(ef.full, { short: true })} · ${Math.round(fundNow / ef.full * 100)}% of full</p>
+    </div>`;
+  if (gold) html += `
+    <div class="card"><p class="row"><span>Gold share</span><span class="ck-num big">${pct(gold.value)}</span></p>
+      <p class="meta">No cap until better alternatives exist. Shown for awareness.</p></div>`;
+  if (us) html += `
+    <div class="card"><p class="row"><span>US stocks</span><span class="ck-num big">${E.rp(us.valueIdr, { short: true })}</span></p>
+      <p class="meta ck-num">$${Number(us.valueUsd).toLocaleString('en-US', { maximumFractionDigits: 0 })}${us.returnPct != null ? ` · ${us.returnPct > 0 ? '+' : ''}${us.returnPct}%` : ''} · single names ${Math.round(us.singleShare * 100)}% → target ≤${Math.round(us.singleTarget * 100)}%</p>
+      <p class="meta">${us.singleShare > us.singleTarget ? 'New US money: S&amp;P 500 ETF only — after the liquid fund.' : 'Within target.'}</p></div>`;
+  if (snaps.length > 1) html += `
+    <p class="ck-label section-gap">By month</p>` + [...snaps].reverse().slice(0, 12).map(x => `
+    <p class="row"><span class="month-tag">${esc(monthName(x.month))}</span><span class="ck-num">${E.rp(total(x), { short: true })}</span></p>${stack(x)}`).join('');
+  if (latest.freed?.length) html += `
+    <p class="ck-label section-gap">Cash that frees up · sweep, never re-spend</p>
+    <ul class="timeline">${latest.freed.map(f => `<li><span class="when">${esc(f.date)}</span><span class="what">${esc(f.label)}</span><span class="amt">+${E.rp(f.amount, { short: true })}/mo</span></li>`).join('')}</ul>`;
+  if (latest.notes?.length) html += `
+    <p class="ck-label section-gap">Notes</p><ul class="list">${latest.notes.map(n => `<li><span class="what" style="white-space:normal">${esc(n)}</span></li>`).join('')}</ul>`;
+  body.innerHTML = html;
 }
 
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
@@ -241,6 +352,20 @@ const SHEETS = {
       addEvent({ kind: 'topup', amount });
     },
   },
+  payday: {
+    label: 'Liquid fund', title: 'Payday sweep',
+    body: () => {
+      const c = paydayCycle();
+      return amountField('amount', `Moved to the liquid fund for the ${fmtDay(c)} payday`, E.plannedSweep(c, state.settings).toLocaleString('id-ID'));
+    },
+    hint: () => `Plan ${E.rp(E.plannedSweep(paydayCycle(), state.settings))}. Log what actually moved — the ETA updates from it.`,
+    save: f => {
+      const amount = E.parseAmount(f.amount.value);
+      if (!Number.isFinite(amount) || amount < 0) return 'Enter an amount (0 if nothing moved)';
+      const c = paydayCycle();
+      addEvent({ kind: 'fund', amount, payday: c, plan: E.plannedSweep(c, state.settings), note: `Payday ${fmtDay(c)}` });
+    },
+  },
   fund: {
     label: 'Liquid fund', title: 'Fund deposit',
     body: () => amountField('amount', 'Deposited into the liquid fund') + `<label>Note <input name="note" autocomplete="off" placeholder="payday transfer, bonus…"></label>`,
@@ -252,6 +377,8 @@ const SHEETS = {
     },
   },
 };
+// The payday a sweep belongs to: the current pay cycle's start.
+function paydayCycle() { return E.payCycle(E.jktDate(), state.settings.payday).start; }
 let openSheet = null;
 function showSheet(name) {
   const s = SHEETS[name]; openSheet = s;
@@ -264,6 +391,7 @@ function closeSheet() { $('#sheet').hidden = true; openSheet = null; }
 
 // ── wiring ───────────────────────────────────────────────────────────────
 function showView(v) {
+  if (v === 'worth' && isViewer()) v = 'today';
   $$('.view').forEach(s => (s.hidden = s.id !== 'view-' + v));
   $$('.gn-item').forEach(b => (b.dataset.gn === v ? b.setAttribute('aria-current', 'page') : b.removeAttribute('aria-current')));
   window.scrollTo(0, 0);
@@ -300,8 +428,14 @@ $('#plan-form').onsubmit = e => {
     wfoDays: $$('#wfo-days input:checked').map(i => Number(i.value)),
     payday: Math.min(28, Math.max(1, Number(f.payday.value) || 25)),
     familyMode: f.familyMode.value, familyWeekly: num(f.familyWeekly.value) || 0,
-    fundBase: num(f.fundBase.value) || 0, updatedAt: new Date().toISOString(),
+    fundBase: num(f.fundBase.value) || 0,
+    sweepBase: E.parseSweepBase(f.sweepBase.value),
+    familyAssumed: num(f.familyAssumed.value) || 0,
+    drilling: f.drilling.checked, drillingMonthly: num(f.drillingMonthly.value) || 0,
+    leakage: num(f.leakage.value) || 0,
+    updatedAt: new Date().toISOString(),
   };
+  if (!next.sweepBase) { $('#plan-sweep-preview').textContent = 'Sweep plan: one line per step, e.g. 2026-10-25 15,05jt'; return; }
   if (!Number.isFinite(next.monthlyMe) || Object.values(next.weights).some(x => !(x >= 0))) return;
   state.settings = next; state.settingsDirty = true; save();
   document.activeElement?.blur(); render(); push(); showView('today');
@@ -325,6 +459,22 @@ $('#import').onchange = async e => {
     state = { ...E.merge(state, { events: Object.values(data.events || {}), settings: data.settings }), dirty: Object.keys(data.events || {}), settingsDirty: true };
     save(); render(); push();
   } catch { alertless('Import failed: not a Nett export'); }
+};
+$('#import-worth').onchange = async e => {
+  const file = e.target.files[0]; if (!file) return;
+  try {
+    const data = JSON.parse(await file.text());
+    const snaps = Array.isArray(data.snapshots) ? data.snapshots : [data];
+    if (!snaps.every(x => x && /^\d{4}-\d{2}$/.test(x.month) && Array.isArray(x.buckets))) throw new Error('shape');
+    mergeWorth({ snapshots: snaps, updatedAt: new Date().toISOString() });
+    worth.updatedAt = new Date().toISOString();
+    saveWorth();
+    const cfg = syncCfg();
+    if (cfg.url && cfg.key && cfg.role === 'owner') await call('POST', '/worth', worth).catch(() => null);
+    $('#worth-detail').textContent = `Worth: ${snaps.map(x => x.month).join(', ')} imported`;
+    render();
+  } catch { $('#worth-detail').textContent = 'Import failed: not a Nett Worth snapshot'; }
+  e.target.value = '';
 };
 function alertless(msg) { $('#sync-detail').textContent = msg; }
 
