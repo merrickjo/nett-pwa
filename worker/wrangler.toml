@@ -12,4 +12,4 @@ ALLOWED_ORIGIN = "https://merrickjo.github.io"
 [[d1_databases]]
 binding = "DB"
 database_name = "nett-db"
-database_id = "REPLACE_WITH_ID_FROM_wrangler_d1_create"
+database_id = "d4e76120-83eb-4418-af77-7611a94a7c85"
