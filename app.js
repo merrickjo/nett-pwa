@@ -2,7 +2,7 @@
 // Cloudflare Worker syncs it so Tesa can view the same numbers.
 import * as E from './engine.js';
 
-const VERSION = '0.3.0';
+const VERSION = '0.3.1';
 const KEY = 'nett-state-v1';
 const SYNC_KEY = 'nett-sync-v1';
 const WORTH_KEY = 'nett-worth-v1';   // owner-only; synced via /worth (APP_KEY), never via /state
@@ -244,7 +244,6 @@ const WORTH_TEMPLATE = [
   { key: 'liquid', label: 'Liquid fund', value: 0 }, { key: 'gold', label: 'Gold', value: 0 },
   { key: 'growth', label: 'Stocks & funds', value: 0 }, { key: 'crypto', label: 'Crypto', value: 0 },
   { key: 'p2p', label: 'KoinWorks', value: 0 },
-  { key: 'house', group: 'use', label: 'House', value: 0 }, { key: 'car', group: 'use', label: 'Car', value: 0 },
 ];
 function latestWorth() { const sn = worth.snapshots || []; return sn[sn.length - 1] || null; }
 const monthName = m => new Date(m + '-01T00:00:00Z').toLocaleDateString('en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' });
@@ -274,22 +273,16 @@ function renderWorth() {
   const fundNow = E.fund(state).balance;
   const ef = latest.emergencyFund || { target: E.MILESTONES[0].amount, full: E.MILESTONES[2].amount };
   const gold = inv(latest).find(b => b.key === 'gold');
-  const use = useOf(latest), useTot = use.reduce((t, b) => t + (b.value || 0), 0);
   const us = latest.us;
   let html = `
     <p class="meta">${esc(monthName(latest.month))} · as of ${esc(fmtDay(latest.asOf || latest.month + '-01'))} ${esc((latest.asOf || '').slice(0, 4))} · ${esc(latest.scope || 'Merrick')}</p>
-    <p class="ck-label">Investable</p>
+    <p class="ck-label">Money you hold</p>
     <p class="hero ck-num" style="font-size:30px">${E.rp(tot)}</p>
-    <p class="meta">${esc(latest.liabilitiesNote || 'Assets only — mortgage and car loan not entered yet.')}</p>
+    <p class="meta">${esc(latest.liabilitiesNote || 'What you hold today. House, car and their loans are not part of this tab.')}</p>
     ${stack(latest)}
     <ul class="legend">${inv(latest).map(b => `<li><span class="sw ${fill(b.key)}"></span>
       <span class="what">${esc(b.label)}${b.note ? `<br><span class="meta">${esc(b.note)}</span>` : ''}</span>
       <span class="pct">${pct(b.value || 0)}</span><span class="amt">${E.rp(b.value || 0, { short: true })}</span></li>`).join('')}</ul>
-
-    ${use.length ? `<p class="ck-label section-gap">House &amp; car · not investable</p>
-    <ul class="legend">${use.map(b => `<li><span class="what">${esc(b.label)}${b.note ? `<br><span class="meta">${esc(b.note)}</span>` : ''}</span>
-      <span class="amt">${E.rp(b.value || 0, { short: true })}</span></li>`).join('')}</ul>
-    <p class="row"><span>All assets incl. house &amp; car</span><span class="ck-num big">${E.rp(tot + useTot, { short: true })}</span></p>` : ''}
 
     <p class="ck-label section-gap">Liquid vs emergency fund</p>
     <div class="card">
@@ -377,7 +370,7 @@ const SHEETS = {
       const last = latestWorth();
       const buckets = last ? last.buckets : WORTH_TEMPLATE;
       const us = last?.us || {};
-      return buckets.map(b => b.key === 'liquid'
+      return buckets.filter(b => b.group !== 'use').map(b => b.key === 'liquid'
         ? `<p class="row"><span>${esc(b.label)}</span><span class="ck-num">${E.rp(E.fund(state).balance)} · from Nett</span></p>`
         : amountField('b_' + b.key, esc(b.label), (b.value || 0).toLocaleString('id-ID'))).join('') +
         `<p class="ck-label section-gap">US stocks (Gotrade) — inside Stocks &amp; funds</p>
@@ -395,6 +388,7 @@ const SHEETS = {
         scope: 'Merrick only', emergencyFund: { target: E.MILESTONES[0].amount, full: E.MILESTONES[2].amount } };
       const parseVal = v => { const t = String(v).trim().toLowerCase(); const m = t.match(/^([\d.,]+)\s*(m|miliar)$/);
         return m ? Math.round(Number(m[1].replace(/\./g, '').replace(',', '.')) * 1e9) : E.parseAmount(v); };
+      base.buckets = base.buckets.filter(b => b.group !== 'use');   // house & car left out of Worth
       for (const b of base.buckets) {
         if (b.key === 'liquid') { b.value = E.fund(state).balance; b.note = 'From Nett (liquid fund balance).'; continue; }
         const v = parseVal(f['b_' + b.key]?.value ?? b.value);

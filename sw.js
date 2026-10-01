@@ -1,7 +1,7 @@
 /* Nett service worker — shell precached, cache-first. Data never cached
    here: app.js keeps state in localStorage and syncs via the Worker.
    Bump VERSION on every shell change (carpe-kit rule). */
-const VERSION = 'nett-v4';
+const VERSION = 'nett-v5';
 const SHELL = 'nett-shell-' + VERSION;
 const SHELL_URLS = [
   './', './index.html', './app.js', './engine.js', './styles.css', './manifest.webmanifest',
