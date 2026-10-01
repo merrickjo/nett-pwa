@@ -1,0 +1,15 @@
+name = "nett-sync"
+main = "worker.js"
+compatibility_date = "2026-01-01"
+
+[vars]
+ALLOWED_ORIGIN = "https://merrickjo.github.io"
+
+# Secrets — set once from worker/:
+#   wrangler secret put APP_KEY    (Merrick: read + write)
+#   wrangler secret put VIEW_KEY   (Tesa: read only)
+
+[[d1_databases]]
+binding = "DB"
+database_name = "nett-db"
+database_id = "REPLACE_WITH_ID_FROM_wrangler_d1_create"

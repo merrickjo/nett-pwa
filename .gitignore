@@ -1,0 +1,8 @@
+.DS_Store
+.env
+.env.*
+.dev.vars
+.dev.vars.*
+node_modules/
+worker/.wrangler/
+worker/.app-key

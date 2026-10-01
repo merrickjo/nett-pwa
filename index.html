@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Nett — weekly spending valve and liquid-fund tracker, built for e-ink.">
+<meta name="theme-color" content="#ffffff">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" href="./icons/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Nett">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Nett</title>
+<!-- carpe-kit v2.0.0: shared type, spacing, shape and the floating bar. -->
+<link rel="stylesheet" href="./carpe-kit.css">
+<link rel="stylesheet" href="./styles.css">
+<script src="./carpe-kit.js" defer></script>
+<script type="module" src="./app.js"></script>
+</head>
+<body>
+<header class="top">
+  <span class="ck-label">Nett</span>
+  <span class="ck-label" id="sync-status">Local</span>
+</header>
+
+<main class="gn-clear">
+  <!-- TODAY -->
+  <section id="view-today" class="view">
+    <p class="ck-label" id="today-label">Safe to spend today</p>
+    <p class="hero ck-num" id="today-left">—</p>
+    <p class="meta" id="today-meta"></p>
+
+    <ol class="strip" id="week-strip" aria-label="This week"></ol>
+    <p class="meta ck-num" id="week-meta"></p>
+
+    <div class="actions owner-only">
+      <button class="btn primary" data-sheet="checkin">Check balance</button>
+      <button class="btn" data-sheet="spend">Log spend</button>
+      <button class="btn" data-sheet="payback">Payback</button>
+      <button class="btn" data-sheet="topup">Top-up</button>
+    </div>
+
+    <div id="sweep-card" class="card" hidden></div>
+
+    <div class="card">
+      <p class="ck-label" id="family-label">Family · observe</p>
+      <p class="row"><span>This week</span><span class="ck-num" id="family-week"></span></p>
+      <p class="row" id="family-left-row" hidden><span>Left this week</span><span class="ck-num" id="family-left"></span></p>
+    </div>
+
+    <div class="card">
+      <p class="row"><span class="ck-label">Pending paybacks</span><span class="ck-num" id="pending"></span></p>
+    </div>
+
+    <p class="ck-label section-gap">Recent</p>
+    <ul class="list" id="recent"></ul>
+  </section>
+
+  <!-- MONTH -->
+  <section id="view-month" class="view" hidden>
+    <p class="ck-label" id="cycle-label"></p>
+    <h1 class="ck-title">This pay cycle</h1>
+    <div class="donut-wrap">
+      <svg id="donut" viewBox="0 0 120 120" role="img" aria-label="Me allowance used"></svg>
+      <div class="donut-center"><span class="ck-label">Me left</span><span class="ck-num big" id="me-left"></span></div>
+    </div>
+    <div class="card">
+      <p class="row"><span>Me allowance</span><span class="ck-num" id="me-allow"></span></p>
+      <p class="row"><span>Me spent</span><span class="ck-num" id="me-spent"></span></p>
+      <p class="row"><span>Family spent</span><span class="ck-num" id="fam-spent"></span></p>
+      <p class="row"><span>Swept to fund</span><span class="ck-num" id="swept"></span></p>
+    </div>
+
+    <p class="ck-label section-gap">Liquid fund</p>
+    <div class="card">
+      <p class="row"><span>Balance</span><span class="ck-num big" id="fund-balance"></span></p>
+      <div class="bar"><div class="bar-fill" id="fund-bar"></div></div>
+      <p class="meta ck-num" id="fund-meta"></p>
+      <button class="btn owner-only" data-sheet="fund">Log fund deposit</button>
+    </div>
+
+    <p class="ck-label section-gap">Weeks</p>
+    <table class="weeks ck-num" id="weeks"></table>
+  </section>
+
+  <!-- PLAN -->
+  <section id="view-plan" class="view" hidden>
+    <h1 class="ck-title">Plan</h1>
+    <form id="plan-form" class="form">
+      <fieldset class="owner-only-fs">
+        <label>Monthly Me allowance <input name="monthlyMe" inputmode="decimal" autocomplete="off"></label>
+        <p class="meta ck-num" id="weekly-preview"></p>
+        <p class="ck-label">Day weights</p>
+        <div class="grid3">
+          <label>WFO <input name="w_wfo" inputmode="decimal"></label>
+          <label>WFH <input name="w_wfh" inputmode="decimal"></label>
+          <label>Weekend <input name="w_we" inputmode="decimal"></label>
+        </div>
+        <p class="ck-label">WFO days</p>
+        <div class="days" id="wfo-days"></div>
+        <label>Payday (day of month) <input name="payday" inputmode="numeric"></label>
+        <p class="ck-label">Family envelope</p>
+        <div class="grid2">
+          <label><input type="radio" name="familyMode" value="observe"> Observe</label>
+          <label><input type="radio" name="familyMode" value="budget"> Budget</label>
+        </div>
+        <label>Family weekly cap <input name="familyWeekly" inputmode="decimal"></label>
+        <label>Liquid fund before Nett <input name="fundBase" inputmode="decimal"></label>
+        <button class="btn primary" type="submit">Save plan</button>
+      </fieldset>
+    </form>
+
+    <p class="ck-label section-gap">Sync</p>
+    <form id="sync-form" class="form">
+      <label>Worker URL <input name="url" placeholder="https://nett-sync.…workers.dev" autocomplete="off"></label>
+      <label>Key <input name="key" type="password" autocomplete="off"></label>
+      <div class="grid2">
+        <label><input type="radio" name="role" value="owner"> Owner (Merrick)</label>
+        <label><input type="radio" name="role" value="viewer"> Viewer (Tesa)</label>
+      </div>
+      <button class="btn primary" type="submit">Save &amp; sync</button>
+      <p class="meta" id="sync-detail"></p>
+    </form>
+
+    <p class="ck-label section-gap">Data</p>
+    <div class="actions">
+      <button class="btn" id="export">Export JSON</button>
+      <label class="btn">Import JSON<input type="file" id="import" accept="application/json" hidden></label>
+    </div>
+    <p class="meta" id="version"></p>
+  </section>
+</main>
+
+<div class="gn-scrim"></div>
+<nav class="gn" aria-label="Primary">
+  <button class="gn-item" data-gn="today" aria-current="page">Today</button>
+  <button class="gn-item" data-gn="month">Month</button>
+  <button class="gn-item" data-gn="plan">Plan</button>
+</nav>
+
+<!-- Sheet (one, re-used) -->
+<div class="sheet-backdrop" id="sheet" hidden>
+  <form class="sheet" id="sheet-form">
+    <p class="ck-label" id="sheet-label"></p>
+    <h2 class="ck-section" id="sheet-title"></h2>
+    <div id="sheet-body"></div>
+    <p class="meta" id="sheet-hint"></p>
+    <div class="actions">
+      <button class="btn" type="button" id="sheet-cancel">Cancel</button>
+      <button class="btn primary" type="submit">Save</button>
+    </div>
+  </form>
+</div>
+</body>
+</html>
