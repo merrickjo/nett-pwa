@@ -23,10 +23,12 @@ an optional Cloudflare Worker + D1 syncs so Tesa can view the same numbers.
   Plan = base sweep (Plan screen, one step per line) − family assumed − drilling − card leakage.
   Today shows the goal line with the ETA; Month shows plan vs actual per payday and
   *What moves the date* (leakage, family vs plan, drilling) in days.
-- **Worth (0.2, owner only):** a monthly asset snapshot written by the Claude review as
-  `private/worth-YYYY-MM.json` (gitignored — never deployed). Import it on Merrick's phone
-  via Plan → Import Worth. It is stored apart from the ledger and syncs only through
-  `GET/POST /worth`, which the Worker refuses for the view key. Tesa's app (Viewer) hides the tab.
+- **Worth (owner only):** Worth → *Update values* once a month: type gold, stocks & funds,
+  crypto, KoinWorks, house, car and the Gotrade USD value; the liquid fund fills itself from Nett.
+  It saves that month's snapshot on the phone and syncs through `GET/POST /worth`, which the
+  Worker refuses for the view key. Tesa's app (Viewer) hides the tab. House & car (group `use`)
+  are shown apart from the investable mix. Plan → Import Worth still takes a JSON snapshot
+  (`private/`, gitignored) as a backup path.
 
 ## Run locally
 

@@ -2,7 +2,7 @@
 // Cloudflare Worker syncs it so Tesa can view the same numbers.
 import * as E from './engine.js';
 
-const VERSION = '0.2.1';
+const VERSION = '0.3.0';
 const KEY = 'nett-state-v1';
 const SYNC_KEY = 'nett-sync-v1';
 const WORTH_KEY = 'nett-worth-v1';   // owner-only; synced via /worth (APP_KEY), never via /state
@@ -239,13 +239,21 @@ function renderPlan() {
 
 // ── Worth (owner only) ───────────────────────────────────────────────────
 const FILLS = ['f0', 'f1', 'f2', 'f3', 'f4', 'f5'];
+// Starting buckets when there is no snapshot yet.
+const WORTH_TEMPLATE = [
+  { key: 'liquid', label: 'Liquid fund', value: 0 }, { key: 'gold', label: 'Gold', value: 0 },
+  { key: 'growth', label: 'Stocks & funds', value: 0 }, { key: 'crypto', label: 'Crypto', value: 0 },
+  { key: 'p2p', label: 'KoinWorks', value: 0 },
+  { key: 'house', group: 'use', label: 'House', value: 0 }, { key: 'car', group: 'use', label: 'Car', value: 0 },
+];
+function latestWorth() { const sn = worth.snapshots || []; return sn[sn.length - 1] || null; }
 const monthName = m => new Date(m + '-01T00:00:00Z').toLocaleDateString('en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' });
 function renderWorth() {
   const body = $('#worth-body');
   if (isViewer()) { body.innerHTML = ''; return; }
   const snaps = worth.snapshots || [];
   if (!snaps.length) {
-    body.innerHTML = '<p class="meta">No snapshot yet. Plan → Import Worth, with the worth-YYYY-MM.json the monthly review writes.</p>';
+    body.innerHTML = '<p class="meta">No values yet. Tap Update values and type what you hold — about a minute, once a month.</p>';
     return;
   }
   const latest = snaps[snaps.length - 1];
@@ -361,6 +369,48 @@ const SHEETS = {
       const amount = E.parseAmount(f.amount.value);
       if (!Number.isFinite(amount) || amount <= 0) return 'Enter an amount';
       addEvent({ kind: 'topup', amount });
+    },
+  },
+  worth: {
+    label: 'Worth · only you', title: 'Update values',
+    body: () => {
+      const last = latestWorth();
+      const buckets = last ? last.buckets : WORTH_TEMPLATE;
+      const us = last?.us || {};
+      return buckets.map(b => b.key === 'liquid'
+        ? `<p class="row"><span>${esc(b.label)}</span><span class="ck-num">${E.rp(E.fund(state).balance)} · from Nett</span></p>`
+        : amountField('b_' + b.key, esc(b.label), (b.value || 0).toLocaleString('id-ID'))).join('') +
+        `<p class="ck-label section-gap">US stocks (Gotrade) — inside Stocks &amp; funds</p>
+         <label>Value in USD <input name="usUsd" inputmode="decimal" value="${us.valueUsd ?? ''}"></label>
+         <div class="grid2">
+           <label>USD/IDR <input name="usFx" inputmode="decimal" value="${us.fx ?? ''}"></label>
+           <label>Single names % <input name="usSingle" inputmode="decimal" value="${us.singleShare != null ? Math.round(us.singleShare * 1000) / 10 : ''}"></label>
+         </div>`;
+    },
+    hint: () => 'Type today\'s values (45jt, 1,05M = miliar…). Unchanged lines keep their notes. Saves this month\'s snapshot and syncs to your devices only.',
+    save: f => {
+      const today = E.jktDate(), month = today.slice(0, 7);
+      const last = latestWorth();
+      const base = last ? JSON.parse(JSON.stringify(last)) : { buckets: JSON.parse(JSON.stringify(WORTH_TEMPLATE)),
+        scope: 'Merrick only', emergencyFund: { target: E.MILESTONES[0].amount, full: E.MILESTONES[2].amount } };
+      const parseVal = v => { const t = String(v).trim().toLowerCase(); const m = t.match(/^([\d.,]+)\s*(m|miliar)$/);
+        return m ? Math.round(Number(m[1].replace(/\./g, '').replace(',', '.')) * 1e9) : E.parseAmount(v); };
+      for (const b of base.buckets) {
+        if (b.key === 'liquid') { b.value = E.fund(state).balance; b.note = 'From Nett (liquid fund balance).'; continue; }
+        const v = parseVal(f['b_' + b.key]?.value ?? b.value);
+        if (!Number.isFinite(v) || v < 0) return `Check the value for ${b.label}`;
+        if (v !== b.value) { b.value = v; b.note = `Updated ${fmtDay(today)} ${today.slice(0, 4)}.`; }
+      }
+      const usd = Number(String(f.usUsd.value).replace(/,/g, '')), fx = Number(String(f.usFx.value).replace(/[.,]/g, ''));
+      const single = Number(String(f.usSingle.value).replace(',', '.'));
+      if (usd > 0 && fx > 0) base.us = { ...(base.us || {}), valueUsd: usd, fx, valueIdr: Math.round(usd * fx),
+        singleShare: single > 0 ? single / 100 : base.us?.singleShare ?? 0, singleTarget: base.us?.singleTarget ?? 0.4 };
+      const snap = { ...base, month, asOf: today };
+      mergeWorth({ snapshots: [snap], updatedAt: new Date().toISOString() });
+      worth.updatedAt = new Date().toISOString();
+      saveWorth(); render();
+      const cfg = syncCfg();
+      if (cfg.url && cfg.key && cfg.role === 'owner') call('POST', '/worth', worth).catch(() => { $('#worth-detail').textContent = 'Worth saved here; sync failed — it retries next time.'; });
     },
   },
   payday: {
