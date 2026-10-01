@@ -2,7 +2,7 @@
 // Cloudflare Worker syncs it so Tesa can view the same numbers.
 import * as E from './engine.js';
 
-const VERSION = '0.2.0';
+const VERSION = '0.2.1';
 const KEY = 'nett-state-v1';
 const SYNC_KEY = 'nett-sync-v1';
 const WORTH_KEY = 'nett-worth-v1';   // owner-only; synced via /worth (APP_KEY), never via /state
@@ -249,28 +249,39 @@ function renderWorth() {
     return;
   }
   const latest = snaps[snaps.length - 1];
-  const total = x => x.buckets.reduce((t, b) => t + (b.value || 0), 0);
-  const order = latest.buckets.map(b => b.key);
+  // group:'use' = house, car — things you live in or drive. Shown, but kept out of the
+  // investable mix so they don't drown the allocation read.
+  const inv = x => x.buckets.filter(b => b.group !== 'use');
+  const useOf = x => x.buckets.filter(b => b.group === 'use');
+  const total = x => inv(x).reduce((t, b) => t + (b.value || 0), 0);
+  const order = inv(latest).map(b => b.key);
   const fill = key => FILLS[Math.max(0, order.indexOf(key)) % FILLS.length];
   const stack = x => {
     const t = total(x) || 1;
-    return `<div class="stack" role="img" aria-label="${esc(x.buckets.map(b => `${b.label} ${Math.round((b.value || 0) / t * 100)}%`).join(', '))}">` +
-      x.buckets.filter(b => b.value > 0).map(b => `<span class="${fill(b.key)}" style="width:${(b.value / t * 100).toFixed(2)}%"></span>`).join('') + '</div>';
+    return `<div class="stack" role="img" aria-label="${esc(inv(x).map(b => `${b.label} ${Math.round((b.value || 0) / t * 100)}%`).join(', '))}">` +
+      inv(x).filter(b => b.value > 0).map(b => `<span class="${fill(b.key)}" style="width:${(b.value / t * 100).toFixed(2)}%"></span>`).join('') + '</div>';
   };
   const tot = total(latest);
   const pct = v => tot ? Math.round(v / tot * 100) + '%' : '';
   const fundNow = E.fund(state).balance;
   const ef = latest.emergencyFund || { target: E.MILESTONES[0].amount, full: E.MILESTONES[2].amount };
-  const gold = latest.buckets.find(b => b.key === 'gold');
+  const gold = inv(latest).find(b => b.key === 'gold');
+  const use = useOf(latest), useTot = use.reduce((t, b) => t + (b.value || 0), 0);
   const us = latest.us;
   let html = `
     <p class="meta">${esc(monthName(latest.month))} · as of ${esc(fmtDay(latest.asOf || latest.month + '-01'))} ${esc((latest.asOf || '').slice(0, 4))} · ${esc(latest.scope || 'Merrick')}</p>
+    <p class="ck-label">Investable</p>
     <p class="hero ck-num" style="font-size:30px">${E.rp(tot)}</p>
     <p class="meta">${esc(latest.liabilitiesNote || 'Assets only — mortgage and car loan not entered yet.')}</p>
     ${stack(latest)}
-    <ul class="legend">${latest.buckets.map(b => `<li><span class="sw ${fill(b.key)}"></span>
+    <ul class="legend">${inv(latest).map(b => `<li><span class="sw ${fill(b.key)}"></span>
       <span class="what">${esc(b.label)}${b.note ? `<br><span class="meta">${esc(b.note)}</span>` : ''}</span>
       <span class="pct">${pct(b.value || 0)}</span><span class="amt">${E.rp(b.value || 0, { short: true })}</span></li>`).join('')}</ul>
+
+    ${use.length ? `<p class="ck-label section-gap">House &amp; car · not investable</p>
+    <ul class="legend">${use.map(b => `<li><span class="what">${esc(b.label)}${b.note ? `<br><span class="meta">${esc(b.note)}</span>` : ''}</span>
+      <span class="amt">${E.rp(b.value || 0, { short: true })}</span></li>`).join('')}</ul>
+    <p class="row"><span>All assets incl. house &amp; car</span><span class="ck-num big">${E.rp(tot + useTot, { short: true })}</span></p>` : ''}
 
     <p class="ck-label section-gap">Liquid vs emergency fund</p>
     <div class="card">
